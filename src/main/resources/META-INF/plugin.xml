@@ -4,8 +4,8 @@
     <vendor url="https://github.com/ryantate-amp">Ryan Tate</vendor>
 
     <description><![CDATA[
-        Keeps Codex terminal tab names synchronized with Codex session names, preserves the
-        JetBrains Codex activity icon, and restores sessions across IDE restarts.
+        Keeps Codex terminal tab names synchronized with Codex session names, shows an animated
+        activity indicator while Codex is working, and restores sessions across IDE restarts.
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>

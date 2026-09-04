@@ -1,5 +1,6 @@
 package com.github.ryantateamp.codexsessiontabs
 
+import kotlin.io.path.appendText
 import kotlin.io.path.createDirectories
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.writeText
@@ -21,7 +22,33 @@ class SessionMetadataTest {
         )
 
         assertEquals("new", SessionMetadata.readThreadName(index, "abc"))
+        assertEquals("new", SessionMetadata.readUniqueThreadName(index, "abc"))
         assertNull(SessionMetadata.readThreadName(index, "missing"))
+    }
+
+    @Test
+    fun `does not use a duplicate thread name as a resume selector`() {
+        val index = createTempDirectory().resolve("session_index.jsonl")
+        index.writeLines(
+            listOf(
+                """{"id":"abc","thread_name":"same"}""",
+                """{"id":"other","thread_name":"same"}""",
+            ),
+        )
+
+        assertNull(SessionMetadata.readUniqueThreadName(index, "abc"))
+    }
+
+    @Test
+    fun `refreshes the cached index after it changes`() {
+        val index = createTempDirectory().resolve("session_index.jsonl")
+        index.writeText("""{"id":"abc","thread_name":"old"}""")
+
+        assertEquals("old", SessionMetadata.readThreadName(index, "abc"))
+
+        index.appendText("\n{\"id\":\"abc\",\"thread_name\":\"new\"}\n")
+
+        assertEquals("new", SessionMetadata.readThreadName(index, "abc"))
     }
 
     @Test
@@ -54,7 +81,13 @@ class SessionMetadataTest {
         )
 
         assertEquals(
-            DiscoveredCodexSession(id, "app-lb", "/tmp/app-lb", rollout.toString()),
+            DiscoveredCodexSession(
+                id = id,
+                title = "app-lb",
+                cwd = "/tmp/app-lb",
+                rolloutPath = rollout.toString(),
+                resumeSelector = "Codi: app-lb",
+            ),
             SessionMetadata.read(rollout),
         )
     }

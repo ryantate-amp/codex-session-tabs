@@ -1,22 +1,33 @@
 package com.github.ryantateamp.codexsessiontabs
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.name
 
-internal class CodexProcessInspector {
+internal class CodexProcessInspector(
+    private val rolloutFinder: LsofRolloutFinder = LsofRolloutFinder(),
+) {
     suspend fun discover(rootProcessId: Long): DiscoveredCodexSession? = withContext(Dispatchers.IO) {
         val processes = processTree(rootProcessId)
-        if (processes.none(::looksLikeCodex)) return@withContext null
+        val codexProcess = processes.firstOrNull(::isDirectCodexProcess)
+            ?: processes.firstOrNull(::looksLikeCodex)
+            ?: return@withContext null
 
-        val rollout = openRolloutFiles(processes.map(ProcessHandle::pid))
+        val rollout = rolloutFinder.find(processes.map(ProcessHandle::pid))
             .maxByOrNull { runCatching { Files.getLastModifiedTime(it).toMillis() }.getOrDefault(0L) }
             ?: return@withContext null
 
-        runCatching { SessionMetadata.read(rollout) }.getOrNull()
+        runCatching { SessionMetadata.read(rollout) }
+            .getOrNull()
+            ?.copy(resumeArgs = CodexLaunchArguments.forResume(processArguments(codexProcess)))
     }
 
     private fun processTree(rootProcessId: Long): List<ProcessHandle> {
@@ -37,23 +48,61 @@ internal class CodexProcessInspector {
             arguments.contains("@openai/codex")
     }
 
-    private fun openRolloutFiles(processIds: List<Long>): Set<Path> {
-        if (processIds.isEmpty()) return emptySet()
+    private fun isDirectCodexProcess(process: ProcessHandle): Boolean {
+        val command = process.info().command().orElse("")
+        return command.substringAfterLast('/').lowercase().startsWith("codex")
+    }
+
+    private fun processArguments(process: ProcessHandle): List<String> {
+        val info = process.info()
+        val arguments = info.arguments().orElse(emptyArray()).toList()
+        if (isDirectCodexProcess(process)) return arguments
+
+        // npm installations may briefly expose a Node launcher instead of the native Codex
+        // process. Its first argument is the launcher script, not a user-supplied CLI argument.
+        val first = arguments.firstOrNull()?.lowercase().orEmpty()
+        return if (first.contains("@openai/codex") || first.endsWith("/codex.js")) arguments.drop(1) else arguments
+    }
+
+    private companion object {
+        const val MAX_PROCESSES = 128
+    }
+}
+
+internal class LsofRolloutFinder(
+    private val commandPrefix: List<String> = listOf("lsof"),
+    private val timeoutMillis: Long = LSOF_TIMEOUT_MILLIS,
+    private val terminationTimeoutMillis: Long = LSOF_TERMINATION_TIMEOUT_MILLIS,
+) {
+    suspend fun find(processIds: List<Long>): Set<Path> = coroutineScope {
+        if (processIds.isEmpty()) return@coroutineScope emptySet()
 
         val process = ProcessBuilder(
-            "lsof",
-            "-Fn",
-            "-p",
-            processIds.distinct().joinToString(","),
+            commandPrefix + listOf("-Fn", "-p", processIds.distinct().joinToString(",")),
         ).redirectErrorStream(true).start()
+        val rolloutPaths = async(Dispatchers.IO) { readRolloutPaths(process) }
 
-        val finished = process.waitFor(LSOF_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
-        if (!finished) {
-            process.destroyForcibly()
-            return emptySet()
+        try {
+            if (!process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)) {
+                process.destroyForcibly()
+                try {
+                    process.inputStream.close()
+                } catch (_: IOException) {
+                    // Closing a process pipe may race with process termination.
+                }
+                process.waitFor(terminationTimeoutMillis, TimeUnit.MILLISECONDS)
+                rolloutPaths.cancelAndJoin()
+                return@coroutineScope emptySet()
+            }
+
+            rolloutPaths.await()
+        } finally {
+            if (process.isAlive) process.destroyForcibly()
         }
+    }
 
-        return process.inputStream.bufferedReader().useLines { lines ->
+    private fun readRolloutPaths(process: Process): Set<Path> = try {
+        process.inputStream.bufferedReader().useLines { lines ->
             lines.mapNotNull { line ->
                 if (!line.startsWith('n')) return@mapNotNull null
                 val raw = line.drop(1)
@@ -63,10 +112,14 @@ internal class CodexProcessInspector {
                 path.takeIf(Files::isRegularFile)
             }.toSet()
         }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: IOException) {
+        emptySet()
     }
 
     private companion object {
-        const val MAX_PROCESSES = 128
         const val LSOF_TIMEOUT_MILLIS = 1_500L
+        const val LSOF_TERMINATION_TIMEOUT_MILLIS = 500L
     }
 }

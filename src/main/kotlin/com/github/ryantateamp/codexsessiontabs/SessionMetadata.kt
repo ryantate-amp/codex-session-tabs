@@ -6,6 +6,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.FileTime
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.name
 
 internal object SessionMetadata {
@@ -14,6 +17,7 @@ internal object SessionMetadata {
     // to the older UUIDv1-v5 range.
     private val uuid = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}")
     private val unwantedPrefix = Regex("^(?:Codi|Codex):\\s*", RegexOption.IGNORE_CASE)
+    private val indexCache = ConcurrentHashMap<Path, SessionIndexSnapshot>()
 
     fun read(rollout: Path): DiscoveredCodexSession? {
         val meta = readSessionMeta(rollout)
@@ -21,11 +25,10 @@ internal object SessionMetadata {
         if (id.isBlank()) return null
 
         val codexHome = codexHomeFor(rollout)
-        val title = codexHome
-            ?.resolve("session_index.jsonl")
-            ?.let { readThreadName(it, id) }
-            .orEmpty()
-            .let(::cleanTitle)
+        val sessionIndex = codexHome?.resolve("session_index.jsonl")
+        val rawTitle = sessionIndex?.let { readThreadName(it, id) }.orEmpty()
+        val title = cleanTitle(rawTitle)
+        val resumeSelector = sessionIndex?.let { readUniqueThreadName(it, id) }.orEmpty()
 
         val cwd = meta.second
         val fallback = Path.of(cwd.ifBlank { "." }).fileName?.toString().orEmpty()
@@ -34,6 +37,7 @@ internal object SessionMetadata {
             title = title.ifBlank { fallback.ifBlank { id.take(8) } },
             cwd = cwd,
             rolloutPath = rollout.toString(),
+            resumeSelector = resumeSelector,
         )
     }
 
@@ -48,22 +52,51 @@ internal object SessionMetadata {
         return null
     }
 
-    internal fun readThreadName(index: Path, sessionId: String): String? {
-        if (!Files.isRegularFile(index) || Files.size(index) > MAX_INDEX_BYTES) return null
+    internal fun readThreadName(index: Path, sessionId: String): String? = readThreadNames(index)?.get(sessionId)
 
-        var result: String? = null
-        Files.newBufferedReader(index).useLines { lines ->
+    internal fun readUniqueThreadName(index: Path, sessionId: String): String? {
+        val threadNames = readThreadNames(index) ?: return null
+        val candidate = threadNames[sessionId]?.takeIf(String::isNotBlank) ?: return null
+        return candidate.takeIf { name -> threadNames.values.count { it == name } == 1 }
+    }
+
+    private fun readThreadNames(index: Path): Map<String, String>? {
+        val cacheKey = index.toAbsolutePath().normalize()
+        val attributes = runCatching {
+            Files.readAttributes(cacheKey, BasicFileAttributes::class.java)
+        }.getOrNull()
+        if (attributes == null || !attributes.isRegularFile || attributes.size() > MAX_INDEX_BYTES) {
+            indexCache.remove(cacheKey)
+            return null
+        }
+
+        val cached = indexCache[cacheKey]
+        if (cached != null &&
+            cached.modifiedAt == attributes.lastModifiedTime() &&
+            cached.size == attributes.size()
+        ) {
+            return cached.threadNames
+        }
+
+        val threadNames = mutableMapOf<String, String>()
+        Files.newBufferedReader(cacheKey).useLines { lines ->
             lines.forEach { line ->
                 runCatching {
                     val objectValue = json.parseToJsonElement(line).jsonObject
                     val id = objectValue["id"]?.jsonPrimitive?.contentOrNull
-                    if (id == sessionId) {
-                        result = objectValue["thread_name"]?.jsonPrimitive?.contentOrNull
+                    if (id != null) {
+                        val threadName = objectValue["thread_name"]?.jsonPrimitive?.contentOrNull
+                        if (threadName == null) threadNames.remove(id) else threadNames[id] = threadName
                     }
                 }
             }
         }
-        return result
+        indexCache[cacheKey] = SessionIndexSnapshot(
+            modifiedAt = attributes.lastModifiedTime(),
+            size = attributes.size(),
+            threadNames = threadNames,
+        )
+        return threadNames
     }
 
     private fun readSessionMeta(rollout: Path): Pair<String, String> {
@@ -85,4 +118,10 @@ internal object SessionMetadata {
 
     private const val MAX_META_LINES = 40
     private const val MAX_INDEX_BYTES = 16L * 1024 * 1024
+
+    private data class SessionIndexSnapshot(
+        val modifiedAt: FileTime,
+        val size: Long,
+        val threadNames: Map<String, String>,
+    )
 }

@@ -34,7 +34,18 @@ were open at project shutdown.
 - The Codex CLI
 - `lsof` on the system path
 
-## Build and install
+## Getting started
+
+1. Install Codex Session Tabs from JetBrains Marketplace, or install a release ZIP with
+   **Settings → Plugins → Install Plugin from Disk**.
+2. In **Settings → Tools → Terminal**, select the Reworked Terminal engine.
+3. Open a terminal tab and start or resume Codex normally.
+4. Leave a Codex tab open when exiting the IDE to have that session restored on the next launch.
+
+No configuration is required. The tab name and activity indicator may take a few seconds to update
+after Codex starts.
+
+## Build from source
 
 The default build downloads the configured GoLand SDK. To use an installed IDE instead, set
 `JETBRAINS_IDE_PATH` or pass `-PlocalIdePath=/path/to/IDE`.

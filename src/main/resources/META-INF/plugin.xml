@@ -4,8 +4,21 @@
     <vendor url="https://github.com/ryantate-amp">Ryan Tate</vendor>
 
     <description><![CDATA[
-        Keeps Codex terminal tab names synchronized with Codex session names, shows an animated
-        activity indicator while Codex is working, and restores sessions across IDE restarts.
+        <p>
+            Keep Codex terminal sessions easy to identify and ready to resume inside JetBrains IDEs.
+        </p>
+        <ul>
+            <li><strong>Session-aware tab names:</strong> Keep each terminal tab synchronized with its
+                Codex session name.</li>
+            <li><strong>Native activity indicator:</strong> Preserve JetBrains' Codex icon and show its
+                animated progress state while Codex is working.</li>
+            <li><strong>Session restoration:</strong> Restore the Codex sessions that were open when the
+                IDE closed, including reusable CLI flags such as <code>--yolo</code>.</li>
+        </ul>
+        <p>
+            Codex Session Tabs works automatically with the Reworked Terminal. It uses local process
+            and Codex state information, has no external service, and does not copy transcript contents.
+        </p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>

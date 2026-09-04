@@ -1,0 +1,18 @@
+<idea-plugin>
+    <id>com.github.ryantateamp.codexsessiontabs</id>
+    <name>Codex Session Tabs</name>
+    <vendor url="https://github.com/ryantate-amp">Ryan Tate</vendor>
+
+    <description><![CDATA[
+        Keeps Codex terminal tab names synchronized with Codex session names, preserves the
+        JetBrains Codex activity icon, and restores sessions across IDE restarts.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.plugins.terminal</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <projectService serviceImplementation="com.github.ryantateamp.codexsessiontabs.CodexSessionTabsService"/>
+        <postStartupActivity implementation="com.github.ryantateamp.codexsessiontabs.CodexSessionTabsStartupActivity"/>
+    </extensions>
+</idea-plugin>

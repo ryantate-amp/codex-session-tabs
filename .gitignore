@@ -1,0 +1,10 @@
+.gradle/
+.idea/
+.intellijPlatform/
+build/
+
+# Behavioral-reference artifacts are deliberately outside the plugin build.
+marketplace/
+inspected/
+tools/
+upstream-source/

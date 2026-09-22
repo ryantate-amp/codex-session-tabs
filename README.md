@@ -12,21 +12,24 @@ It is aimed at one specific workflow:
 ## How it works
 
 The plugin uses the public experimental Reworked Terminal API. It associates a terminal tab with
-Codex by looking at the terminal process tree and the rollout JSONL file opened by that process.
-The human title comes from `$CODEX_HOME/session_index.jsonl`. Only the session ID, title, working
-directory, rollout path, and reusable CLI flags are persisted in the project's workspace state;
-transcript contents, positional prompts, and one-shot inputs are never copied. Codex's transient
-terminal-title updates drive the activity animation without replacing the synchronized session
-name.
+Codex by looking at the terminal process tree. For a standalone Codex process it reads the rollout
+JSONL file opened by that process; when app-server remote control owns the rollout instead, it
+resolves an explicit `resume <name-or-UUID>` selector or Codex's unique application title against
+local Codex state. The human title comes from `$CODEX_HOME/session_index.jsonl`. Only the session ID,
+title, working directory, rollout path, and reusable CLI flags are persisted in the project's
+workspace state; transcript contents, positional prompts, and one-shot inputs are never copied.
+Codex's transient terminal-title updates drive the activity animation without replacing the
+synchronized session name.
 
-On startup it waits for JetBrains to restore terminal tabs. A single idle tab with the exact saved
-title and working directory is reused; otherwise the plugin creates a Codex tab that directly runs
-`codex <saved flags> resume <UUID>`. An existing `resume` and session ID are removed when flags are
-recorded, so restoration always adds exactly one canonical resume command. Commands injected into
-reused shell tabs use the unique session name and minimal quoting so shell history remains readable;
-duplicate or unavailable names fall back to the exact UUID. Ambiguous tabs are left alone. Closing a
-tab removes it from the restore set; the workspace state therefore represents the Codex tabs that
-were open at project shutdown.
+On startup it lets JetBrains restore the terminal layout, then associates saved sessions with those
+tabs using the persisted command, unique title, and requested working directory. Dormant tabs
+therefore do not need to start before they can be matched. Commands injected into restored shell
+tabs use the currently unique session name and minimal quoting so shell history remains readable;
+duplicate or unavailable names fall back to the exact UUID. When application titles were not
+persisted, a complete group of idle tabs can be matched only when its size and saved working
+directory make the association deterministic. Ambiguous tabs are left alone, and the plugin never
+creates speculative replacement tabs. Closing a tab removes it from the restore set; IDE shutdown
+does not.
 
 ## Requirements
 

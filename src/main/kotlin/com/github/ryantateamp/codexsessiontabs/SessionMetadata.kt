@@ -18,6 +18,7 @@ internal object SessionMetadata {
     private val uuid = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}")
     private val unwantedPrefix = Regex("^(?:Codi|Codex):\\s*", RegexOption.IGNORE_CASE)
     private val indexCache = ConcurrentHashMap<Path, SessionIndexSnapshot>()
+    private val rolloutCache = ConcurrentHashMap<RolloutLookup, Path>()
 
     fun read(rollout: Path): DiscoveredCodexSession? {
         val meta = readSessionMeta(rollout)
@@ -58,6 +59,73 @@ internal object SessionMetadata {
         val threadNames = readThreadNames(index) ?: return null
         val candidate = threadNames[sessionId]?.takeIf(String::isNotBlank) ?: return null
         return candidate.takeIf { name -> threadNames.values.count { it == name } == 1 }
+    }
+
+    /**
+     * Resolves the selector used by a thin `codex resume` client. With Codex app-server remote
+     * control enabled, the shared daemon owns rollout files instead of the terminal-local process,
+     * so process-tree lsof cannot associate the terminal with its thread.
+     */
+    internal fun resolveResumeSelector(
+        selector: String,
+        knownSessions: List<DiscoveredCodexSession> = emptyList(),
+        codexHome: Path? = defaultCodexHome(),
+    ): DiscoveredCodexSession? {
+        val normalizedSelector = selector.trim().takeIf(String::isNotEmpty) ?: return null
+        val knownMatches = knownSessions.filter { session ->
+            session.id.equals(normalizedSelector, ignoreCase = true) ||
+                session.resumeSelector == normalizedSelector ||
+                session.title == normalizedSelector
+        }
+        knownMatches.singleOrNull()?.let { known ->
+            val metadata = runCatching { read(Path.of(known.rolloutPath)) }.getOrNull()
+            if (metadata?.id == known.id) return metadata
+        }
+
+        val home = codexHome?.toAbsolutePath()?.normalize() ?: return null
+        val sessionId = if (uuid.matches(normalizedSelector)) {
+            normalizedSelector
+        } else {
+            val threadNames = readThreadNames(home.resolve("session_index.jsonl")) ?: return null
+            threadNames.entries
+                .filter {
+                    it.value == normalizedSelector ||
+                        cleanTitle(it.value) == cleanTitle(normalizedSelector)
+                }
+                .map { it.key }
+                .singleOrNull()
+                ?: return null
+        }
+        val rollout = findRollout(home, sessionId) ?: return null
+        return read(rollout)?.takeIf { it.id.equals(sessionId, ignoreCase = true) }
+    }
+
+    private fun defaultCodexHome(): Path? {
+        val configured = runCatching { System.getenv("CODEX_HOME") }.getOrNull()
+            ?.takeIf(String::isNotBlank)
+        if (configured != null) return runCatching { Path.of(configured) }.getOrNull()
+
+        val userHome = runCatching { System.getProperty("user.home") }.getOrNull()
+            ?.takeIf(String::isNotBlank)
+            ?: return null
+        return runCatching { Path.of(userHome, ".codex") }.getOrNull()
+    }
+
+    private fun findRollout(codexHome: Path, sessionId: String): Path? {
+        val key = RolloutLookup(codexHome, sessionId.lowercase())
+        rolloutCache[key]?.let { cached ->
+            if (Files.isRegularFile(cached)) return cached
+            rolloutCache.remove(key, cached)
+        }
+
+        val sessions = codexHome.resolve("sessions")
+        if (!Files.isDirectory(sessions)) return null
+        val suffix = "-${sessionId.lowercase()}.jsonl"
+        val rollout = Files.find(sessions, MAX_SESSION_TREE_DEPTH, { path, attributes ->
+            attributes.isRegularFile && path.fileName.toString().lowercase().endsWith(suffix)
+        }).use { matches -> matches.findFirst().orElse(null) } ?: return null
+        rolloutCache[key] = rollout
+        return rollout
     }
 
     private fun readThreadNames(index: Path): Map<String, String>? {
@@ -118,6 +186,12 @@ internal object SessionMetadata {
 
     private const val MAX_META_LINES = 40
     private const val MAX_INDEX_BYTES = 16L * 1024 * 1024
+    private const val MAX_SESSION_TREE_DEPTH = 5
+
+    private data class RolloutLookup(
+        val codexHome: Path,
+        val sessionId: String,
+    )
 
     private data class SessionIndexSnapshot(
         val modifiedAt: FileTime,

@@ -98,6 +98,29 @@ internal object CodexLaunchArguments {
     fun shellResumeCommand(executable: String, sessionId: String, rawArguments: List<String>): String =
         resumeCommand(executable, sessionId, rawArguments).joinToString(" ", transform = ::shellWord)
 
+    /**
+     * Returns true when a persisted terminal command already resumes this exact session.
+     * JetBrains restores custom terminal commands itself, so injecting another resume command
+     * into such a tab would type into the running Codex process instead of its shell.
+     */
+    fun resumesSession(command: List<String>, sessionId: String): Boolean {
+        val resumeIndex = command.indexOf("resume")
+        return resumeIndex >= 0 && sessionId in command.subList(resumeIndex + 1, command.size)
+    }
+
+    /**
+     * Extracts the explicit selector from the common `codex ... resume <selector>` form.
+     * Selector-free modes such as `resume --last` intentionally return null: they cannot be
+     * associated with one terminal without asking Codex which thread it selected.
+     */
+    fun resumeSelector(rawArguments: List<String>): String? {
+        val resumeIndex = rawArguments.indexOf("resume")
+        if (resumeIndex < 0) return null
+
+        return rawArguments.getOrNull(resumeIndex + 1)
+            ?.takeIf { it.isNotBlank() && it != "--" && !it.startsWith('-') }
+    }
+
     private fun optionName(token: String): String? {
         if (token.startsWith("--") && token.length > 2) return token.substringBefore('=')
         if (!token.startsWith('-') || token == "-") return null

@@ -81,4 +81,42 @@ class CodexLaunchArgumentsTest {
             ),
         )
     }
+
+    @Test
+    fun `recognizes a persisted command for the exact resumed session`() {
+        val sessionId = "019c1234-5678-7abc-8def-0123456789ab"
+
+        assertEquals(
+            true,
+            CodexLaunchArguments.resumesSession(
+                listOf("/opt/homebrew/bin/codex", "--yolo", "resume", sessionId),
+                sessionId,
+            ),
+        )
+        assertEquals(
+            false,
+            CodexLaunchArguments.resumesSession(
+                listOf("/opt/homebrew/bin/codex", "--yolo", "resume", "a-different-session"),
+                sessionId,
+            ),
+        )
+        assertEquals(
+            false,
+            CodexLaunchArguments.resumesSession(listOf("/bin/zsh", "-l"), sessionId),
+        )
+    }
+
+    @Test
+    fun `extracts a human resume selector from app server client arguments`() {
+        assertEquals(
+            "k8s-platform",
+            CodexLaunchArguments.resumeSelector(listOf("--yolo", "resume", "k8s-platform")),
+        )
+    }
+
+    @Test
+    fun `does not guess a selector for resume last or a normal launch`() {
+        assertEquals(null, CodexLaunchArguments.resumeSelector(listOf("resume", "--last")))
+        assertEquals(null, CodexLaunchArguments.resumeSelector(listOf("--yolo")))
+    }
 }

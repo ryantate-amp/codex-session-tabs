@@ -21,6 +21,16 @@
         </p>
     ]]></description>
 
+    <change-notes><![CDATA[
+        <ul>
+            <li>Restore only Codex sessions whose terminal tabs were open at shutdown.</li>
+            <li>Preserve the visible terminal tab order across IDE restarts.</li>
+            <li>Retain reusable launch flags such as <code>--yolo</code> without duplicating
+                <code>resume</code> arguments.</li>
+            <li>Recognize sessions when Codex app-server remote control owns the rollout process.</li>
+        </ul>
+    ]]></change-notes>
+
     <depends>com.intellij.modules.platform</depends>
     <depends>org.jetbrains.plugins.terminal</depends>
 

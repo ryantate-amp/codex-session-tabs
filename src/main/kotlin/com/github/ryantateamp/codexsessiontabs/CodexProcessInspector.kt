@@ -15,19 +15,30 @@ import kotlin.io.path.name
 internal class CodexProcessInspector(
     private val rolloutFinder: LsofRolloutFinder = LsofRolloutFinder(),
 ) {
-    suspend fun discover(rootProcessId: Long): DiscoveredCodexSession? = withContext(Dispatchers.IO) {
+    suspend fun discover(
+        rootProcessId: Long,
+        knownSessions: List<DiscoveredCodexSession> = emptyList(),
+        applicationTitle: String? = null,
+    ): DiscoveredCodexSession? = withContext(Dispatchers.IO) {
         val processes = processTree(rootProcessId)
         val codexProcess = processes.firstOrNull(::isDirectCodexProcess)
             ?: processes.firstOrNull(::looksLikeCodex)
             ?: return@withContext null
+        val arguments = processArguments(codexProcess)
 
         val rollout = rolloutFinder.find(processes.map(ProcessHandle::pid))
             .maxByOrNull { runCatching { Files.getLastModifiedTime(it).toMillis() }.getOrDefault(0L) }
-            ?: return@withContext null
-
-        runCatching { SessionMetadata.read(rollout) }
-            .getOrNull()
-            ?.copy(resumeArgs = CodexLaunchArguments.forResume(processArguments(codexProcess)))
+        val discovered = if (rollout != null) {
+            runCatching { SessionMetadata.read(rollout) }.getOrNull()
+        } else {
+            listOfNotNull(
+                CodexLaunchArguments.resumeSelector(arguments),
+                applicationTitle?.trim()?.takeIf(String::isNotEmpty),
+            ).distinct().firstNotNullOfOrNull { selector ->
+                SessionMetadata.resolveResumeSelector(selector, knownSessions)
+            }
+        }
+        discovered?.copy(resumeArgs = CodexLaunchArguments.forResume(arguments))
     }
 
     private fun processTree(rootProcessId: Long): List<ProcessHandle> {

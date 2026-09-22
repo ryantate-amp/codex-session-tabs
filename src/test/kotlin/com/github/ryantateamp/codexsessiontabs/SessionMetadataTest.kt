@@ -91,4 +91,42 @@ class SessionMetadataTest {
             SessionMetadata.read(rollout),
         )
     }
+
+    @Test
+    fun `resolves a unique resume name when the app server owns the rollout`() {
+        val root = createTempDirectory()
+        val id = "01991ac0-7d72-7f15-8fb4-c63e900a52d0"
+        val rollout = root.resolve("sessions/2026/09/04/rollout-$id.jsonl")
+        rollout.parent.createDirectories()
+        rollout.writeText(
+            """{"type":"session_meta","payload":{"id":"$id","cwd":"/tmp/k8s-platform"}}""",
+        )
+        root.resolve("session_index.jsonl").writeText(
+            """{"id":"$id","thread_name":"Codex: k8s-platform"}""",
+        )
+
+        assertEquals(
+            DiscoveredCodexSession(
+                id = id,
+                title = "k8s-platform",
+                cwd = "/tmp/k8s-platform",
+                rolloutPath = rollout.toString(),
+                resumeSelector = "Codex: k8s-platform",
+            ),
+            SessionMetadata.resolveResumeSelector("k8s-platform", codexHome = root),
+        )
+    }
+
+    @Test
+    fun `does not resolve a duplicate resume name`() {
+        val root = createTempDirectory()
+        root.resolve("session_index.jsonl").writeLines(
+            listOf(
+                """{"id":"01991ac0-7d72-7f15-8fb4-c63e900a52d0","thread_name":"duplicate"}""",
+                """{"id":"01991ac0-7d72-7f15-8fb4-c63e900a52d1","thread_name":"duplicate"}""",
+            ),
+        )
+
+        assertNull(SessionMetadata.resolveResumeSelector("duplicate", codexHome = root))
+    }
 }

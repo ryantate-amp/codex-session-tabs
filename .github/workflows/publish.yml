@@ -34,7 +34,27 @@ jobs:
           version="$(sed -n 's/^pluginVersion=//p' gradle.properties)"
           test "v${version}" = "${{ github.event.release.tag_name }}"
 
-      - name: Verify and publish
-        run: ./gradlew clean test verifyPlugin publishPlugin --no-daemon
+      - name: Verify
+        run: ./gradlew clean test verifyPlugin --no-daemon
+
+      - name: Publish
+        shell: bash
+        run: |
+          set +e
+          ./gradlew publishPlugin --no-daemon 2>&1 | tee publish.log
+          status=${PIPESTATUS[0]}
+          set -e
+
+          if [[ ${status} -eq 0 ]]; then
+            exit 0
+          fi
+
+          version="$(sed -n 's/^pluginVersion=//p' gradle.properties)"
+          if grep -Fq "already contains version ${version}" publish.log; then
+            echo "::notice::JetBrains Marketplace already contains version ${version}."
+            exit 0
+          fi
+
+          exit "${status}"
         env:
           PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}

@@ -23,11 +23,8 @@
 
     <change-notes><![CDATA[
         <ul>
-            <li>Restore only Codex sessions whose terminal tabs were open at shutdown.</li>
-            <li>Preserve the visible terminal tab order across IDE restarts.</li>
-            <li>Retain reusable launch flags such as <code>--yolo</code> without duplicating
-                <code>resume</code> arguments.</li>
-            <li>Recognize sessions when Codex app-server remote control owns the rollout process.</li>
+            <li>Recognize Codex sessions whose terminal title includes the working directory,
+                including sessions launched before their current name was assigned.</li>
         </ul>
     ]]></change-notes>
 

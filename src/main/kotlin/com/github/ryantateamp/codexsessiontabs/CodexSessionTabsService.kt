@@ -187,6 +187,8 @@ internal class CodexSessionTabsService(
                     rootProcessId,
                     savedSessionHints(),
                     TerminalCompat.applicationTitle(tab.view),
+                    tab.view.title.buildTitle(),
+                    TerminalCompat.currentDirectory(tab.view),
                 )
             } catch (error: CancellationException) {
                 throw error

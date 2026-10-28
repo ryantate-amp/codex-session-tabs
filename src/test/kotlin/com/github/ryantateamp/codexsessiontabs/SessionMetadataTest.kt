@@ -129,4 +129,19 @@ class SessionMetadataTest {
 
         assertNull(SessionMetadata.resolveResumeSelector("duplicate", codexHome = root))
     }
+
+    @Test
+    fun `resolves a terminal title with its verified directory suffix`() {
+        val root = createTempDirectory()
+        val id = "01991ac0-7d72-7f15-8fb4-c63e900a52d0"
+        val rollout = root.resolve("sessions/2026/10/01/rollout-$id.jsonl")
+        rollout.parent.createDirectories()
+        rollout.writeText("""{"type":"session_meta","payload":{"id":"$id","cwd":"/tmp/work"}}""")
+        root.resolve("session_index.jsonl").writeText("""{"id":"$id","thread_name":"network-policies"}""")
+
+        val expected = SessionMetadata.read(rollout)
+        assertEquals(expected, SessionMetadata.resolveTerminalTitle("network-policies | work", "/tmp/work", codexHome = root))
+        assertNull(SessionMetadata.resolveTerminalTitle("network-policies | other", "/tmp/work", codexHome = root))
+        assertNull(SessionMetadata.resolveTerminalTitle("network-policies | work", null, codexHome = root))
+    }
 }

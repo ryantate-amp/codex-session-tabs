@@ -61,6 +61,24 @@ internal object SessionMetadata {
         return candidate.takeIf { name -> threadNames.values.count { it == name } == 1 }
     }
 
+    /** JetBrains can append the terminal directory to a Codex title, for example `name | work`. */
+    internal fun resolveTerminalTitle(
+        title: String,
+        currentDirectory: String?,
+        knownSessions: List<DiscoveredCodexSession> = emptyList(),
+        codexHome: Path? = defaultCodexHome(),
+    ): DiscoveredCodexSession? {
+        resolveResumeSelector(title, knownSessions, codexHome)?.let { return it }
+
+        val directoryName = currentDirectory?.let { directory ->
+            runCatching { Path.of(directory).fileName?.toString() }.getOrNull()
+        }?.takeIf(String::isNotBlank) ?: return null
+        val suffix = " | $directoryName"
+        if (!title.endsWith(suffix)) return null
+        val sessionName = title.removeSuffix(suffix).trim().takeIf(String::isNotEmpty) ?: return null
+        return resolveResumeSelector(sessionName, knownSessions, codexHome)
+    }
+
     /**
      * Resolves the selector used by a thin `codex resume` client. With Codex app-server remote
      * control enabled, the shared daemon owns rollout files instead of the terminal-local process,

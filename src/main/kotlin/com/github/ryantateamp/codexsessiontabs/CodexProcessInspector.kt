@@ -19,6 +19,8 @@ internal class CodexProcessInspector(
         rootProcessId: Long,
         knownSessions: List<DiscoveredCodexSession> = emptyList(),
         applicationTitle: String? = null,
+        tabTitle: String? = null,
+        currentDirectory: String? = null,
     ): DiscoveredCodexSession? = withContext(Dispatchers.IO) {
         val processes = processTree(rootProcessId)
         val codexProcess = processes.firstOrNull(::isDirectCodexProcess)
@@ -31,12 +33,11 @@ internal class CodexProcessInspector(
         val discovered = if (rollout != null) {
             runCatching { SessionMetadata.read(rollout) }.getOrNull()
         } else {
-            listOfNotNull(
-                CodexLaunchArguments.resumeSelector(arguments),
-                applicationTitle?.trim()?.takeIf(String::isNotEmpty),
-            ).distinct().firstNotNullOfOrNull { selector ->
-                SessionMetadata.resolveResumeSelector(selector, knownSessions)
-            }
+            CodexLaunchArguments.resumeSelector(arguments)
+                ?.let { SessionMetadata.resolveResumeSelector(it, knownSessions) }
+                ?: listOfNotNull(applicationTitle, tabTitle).distinct().firstNotNullOfOrNull { title ->
+                    SessionMetadata.resolveTerminalTitle(title, currentDirectory, knownSessions)
+                }
         }
         discovered?.copy(resumeArgs = CodexLaunchArguments.forResume(arguments))
     }
